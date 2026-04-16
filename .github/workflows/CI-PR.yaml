@@ -1,0 +1,187 @@
+name: CI-PR Security Pipeline
+
+on:
+  pull_request:
+    branches: [main]
+
+# Principle of least privilege — only grant what each job actually needs
+permissions:
+  contents: read
+  security-events: write  # Trivy SARIF upload to GitHub Security tab
+  pull-requests: write    # ZAP scan results on PR
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # JOB 1: SAST — SonarCloud Static Analysis
+  # Runs tests first to collect coverage, then sends everything to SonarCloud
+  # ─────────────────────────────────────────────────────────────
+  sonar-sast:
+    name: "SAST: SonarCloud"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Full history required — SonarCloud uses git blame for "new code" detection
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests with coverage
+        # Generates coverage/lcov.info consumed by SonarCloud
+        run: npm test
+
+      - name: SonarCloud Scan
+        # sonar-project.properties in the repo root provides all project config
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+  # ─────────────────────────────────────────────────────────────
+  # JOB 2: DAST — OWASP ZAP Baseline Scan
+  # Builds and runs the Docker container, then scans it with ZAP
+  # ─────────────────────────────────────────────────────────────
+  zap-dast:
+    name: "DAST: OWASP ZAP Baseline"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t devsecops-demo:pr-${{ github.event.pull_request.number }} .
+
+      - name: Start application container
+        run: |
+          docker run -d \
+            --name devsecops-app \
+            -p 3000:3000 \
+            devsecops-demo:pr-${{ github.event.pull_request.number }}
+
+      - name: Wait for application to be healthy
+        # Poll /health rather than a blind sleep — faster on fast runners,
+        # reliable on slow ones. Dumps container logs if the app never starts.
+        run: |
+          echo "Waiting for app to be ready..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/health > /dev/null; then
+              echo "App is healthy after $i attempt(s)"
+              exit 0
+            fi
+            echo "Attempt $i/30 — retrying in 2s..."
+            sleep 2
+          done
+          echo "App failed to start. Container logs:"
+          docker logs devsecops-app
+          exit 1
+
+      - name: ZAP Baseline Scan
+        # Pinned to commit SHA instead of a floating version tag.
+        # Tag v0.14.0 → SHA 2b5fc7f98d837319798ab7f128ea50b7d40563b6
+        # Lesson learned from the March 2026 trivy-action supply chain attack:
+        # tags are mutable — SHAs are not.
+        uses: zaproxy/action-baseline@2b5fc7f98d837319798ab7f128ea50b7d40563b6
+        with:
+          target: "http://localhost:3000"
+          # fail_action: false — findings produce a report but do not block the PR.
+          # Change to true to enforce a hard gate on WARN/FAIL rules.
+          fail_action: false
+          # Use artifact upload rather than creating GitHub issues on every PR run.
+          allow_issue_creation: false
+          artifact_name: "zap-baseline-report"
+
+      - name: Stop application container
+        # Always clean up, even if the ZAP step fails
+        if: always()
+        run: docker stop devsecops-app && docker rm devsecops-app
+
+  # ─────────────────────────────────────────────────────────────
+  # JOB 3: Container & Dependency Scanning — Trivy
+  # Two scans: filesystem (npm deps) + Docker image (OS packages)
+  # ─────────────────────────────────────────────────────────────
+  trivy-scan:
+    name: "Container Scan: Trivy"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── CRITICAL SECURITY NOTE ──────────────────────────────────
+      # aquasecurity/trivy-action was compromised in a supply chain
+      # attack on March 19, 2026 (attributed to the TeamPCP threat
+      # actor). All 76 of 77 version tags were force-pushed to
+      # malicious commits designed to exfiltrate CI secrets.
+      #
+      # The ONLY surviving safe tag is v0.35.0 (SHA 57a97c7e...),
+      # which the attacker did not replace because it already
+      # pointed to their base commit.
+      #
+      # NEVER pin to a tag (e.g. @v0.30.0). ALWAYS pin to the full
+      # 40-character commit SHA so the reference is immutable.
+      #
+      # Verified safe SHA for v0.35.0:
+      #   57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+      #
+      # Verify yourself:
+      #   git ls-remote https://github.com/aquasecurity/trivy-action.git refs/tags/0.35.0
+      #
+      # Advisory: GHSA-69fq-xp46-6x23
+      # ──────────────────────────────────────────────────────────────
+
+      - name: Trivy — Filesystem / Dependency Scan
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "sarif"
+          output: "trivy-fs-results.sarif"
+          severity: "CRITICAL,HIGH"
+          ignore-unfixed: true
+
+      - name: Upload FS scan SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-fs-results.sarif"
+          category: "trivy-filesystem"
+
+      - name: Build Docker image for image scan
+        run: docker build -t devsecops-demo:trivy-scan .
+
+      - name: Trivy — Docker Image Scan
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+        with:
+          scan-type: "image"
+          image-ref: "devsecops-demo:trivy-scan"
+          format: "sarif"
+          output: "trivy-image-results.sarif"
+          severity: "CRITICAL,HIGH"
+          ignore-unfixed: true
+
+      - name: Upload image scan SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-image-results.sarif"
+          category: "trivy-image"
+
+      - name: Upload Trivy reports as artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-reports
+          path: |
+            trivy-fs-results.sarif
+            trivy-image-results.sarif
+          retention-days: 14
