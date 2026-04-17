@@ -29,7 +29,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
 
       - name: Install dependencies
@@ -41,7 +41,7 @@ jobs:
 
       - name: SonarCloud Scan
         # sonar-project.properties in the repo root provides all project config
-        uses: SonarSource/sonarqube-scan-action@v5
+        uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
@@ -97,7 +97,7 @@ jobs:
           # Change to true to enforce a hard gate on WARN/FAIL rules.
           fail_action: false
           # Use artifact upload rather than creating GitHub issues on every PR run.
-          allow_issue_creation: false
+          allow_issue_writing: false
           artifact_name: "zap-baseline-report"
 
       - name: Stop application container
@@ -150,7 +150,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Upload FS scan SARIF to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: "trivy-fs-results.sarif"
@@ -170,7 +170,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Upload image scan SARIF to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: "trivy-image-results.sarif"

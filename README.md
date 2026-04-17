@@ -147,3 +147,7 @@ devsecops-demo/
     └── workflows/
         └── CI-PR.yaml      # Security scanning pipeline
 ```
+
+### Application architecture
+
+TBD
