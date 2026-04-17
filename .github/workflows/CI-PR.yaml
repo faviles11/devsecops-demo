@@ -41,7 +41,7 @@ jobs:
 
       - name: SonarCloud Scan
         # sonar-project.properties in the repo root provides all project config
-        uses: SonarSource/sonarqube-scan-action@v5
+        uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
@@ -97,7 +97,7 @@ jobs:
           # Change to true to enforce a hard gate on WARN/FAIL rules.
           fail_action: false
           # Use artifact upload rather than creating GitHub issues on every PR run.
-          allow_issue_creation: false
+          allow_issue_writing: false
           artifact_name: "zap-baseline-report"
 
       - name: Stop application container
