@@ -1,5 +1,6 @@
 import express, { Application, Request, Response, NextFunction } from 'express';
 import { itemsRouter } from './routes/items';
+import { externalRouter } from './routes/external';
 
 const app: Application = express();
 
@@ -13,6 +14,9 @@ app.get('/health', (_req: Request, res: Response) => {
 
 // Items resource
 app.use('/api/items', itemsRouter);
+
+// Outbound HTTP proxy demos (uses axios)
+app.use('/api/external', externalRouter);
 
 // 404 handler
 app.use((_req: Request, res: Response) => {

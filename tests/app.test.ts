@@ -1,5 +1,9 @@
 import request from 'supertest';
+import axios from 'axios';
 import { app } from '../src/app';
+
+jest.mock('axios');
+const mockedAxios = axios as jest.Mocked<typeof axios>;
 
 describe('GET /health', () => {
   it('returns 200 with status ok', async () => {
@@ -58,5 +62,37 @@ describe('Items API', () => {
   it('GET unknown route returns 404', async () => {
     const res = await request(app).get('/does-not-exist');
     expect(res.status).toBe(404);
+  });
+});
+
+describe('External API (axios)', () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('GET /api/external/posts returns posts from upstream', async () => {
+    const fakePosts = [
+      { id: 1, userId: 1, title: 'Post 1', body: 'Body 1' },
+      { id: 2, userId: 1, title: 'Post 2', body: 'Body 2' },
+    ];
+    mockedAxios.get.mockResolvedValueOnce({ data: fakePosts });
+
+    const res = await request(app).get('/api/external/posts');
+
+    expect(res.status).toBe(200);
+    expect(res.body.posts).toEqual(fakePosts);
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      'https://jsonplaceholder.typicode.com/posts',
+      expect.objectContaining({ timeout: 5000 }),
+    );
+  });
+
+  it('GET /api/external/posts returns 502 when upstream fails', async () => {
+    mockedAxios.get.mockRejectedValueOnce(new Error('Network down'));
+
+    const res = await request(app).get('/api/external/posts');
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toBe('Upstream service unavailable');
   });
 });
