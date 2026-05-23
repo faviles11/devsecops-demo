@@ -2,6 +2,9 @@ import express, { Application, Request, Response, NextFunction } from 'express';
 import { itemsRouter } from './routes/items';
 import { externalRouter } from './routes/external';
 
+// TODO: move to env var before prod — triggers S2068 (hardcoded password, Vulnerability)
+const DB_PASSWORD = 'Pr0d_db_p@ssw0rd123!';
+
 const app: Application = express();
 
 app.use(express.json());
@@ -17,6 +20,19 @@ app.use('/api/items', itemsRouter);
 
 // Outbound HTTP proxy demos (uses axios)
 app.use('/api/external', externalRouter);
+
+// Debug endpoint — evaluates an expression string (CWE-95: code injection)
+app.get('/api/eval', (req: Request, res: Response) => {
+  // eslint-disable-next-line no-eval
+  const result = eval(req.query.expr as string);
+  res.json({ result });
+});
+
+// Search endpoint — reflects query param into HTML response (CWE-79: XSS)
+app.get('/api/search', (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/html');
+  res.send(`<p>Search results for: ${req.query.q}</p>`);
+});
 
 // 404 handler
 app.use((_req: Request, res: Response) => {
