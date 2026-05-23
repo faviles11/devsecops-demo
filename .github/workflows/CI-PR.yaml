@@ -140,26 +140,25 @@ jobs:
       # ──────────────────────────────────────────────────────────────
 
       - name: Trivy — Filesystem / Dependency Scan
+        # table format prints the CVE table to the CI log so it is visible in the run output.
+        # exit-code 1 fails the step (and the job) when CRITICAL/HIGH findings are present.
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
         with:
           scan-type: "fs"
           scan-ref: "."
-          format: "sarif"
-          output: "trivy-fs-results.sarif"
+          format: "table"
           severity: "CRITICAL,HIGH"
           ignore-unfixed: true
-
-      - name: Upload FS scan SARIF to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
-        with:
-          sarif_file: "trivy-fs-results.sarif"
-          category: "trivy-filesystem"
+          exit-code: "1"
 
       - name: Build Docker image for image scan
+        # if: always() ensures this runs even when the FS scan step above fails,
+        # so the image scan and its SARIF upload are never skipped.
+        if: always()
         run: docker build -t devsecops-demo:trivy-scan .
 
       - name: Trivy — Docker Image Scan
+        if: always()
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
         with:
           scan-type: "image"
@@ -168,6 +167,7 @@ jobs:
           output: "trivy-image-results.sarif"
           severity: "CRITICAL,HIGH"
           ignore-unfixed: true
+          exit-code: "1"
 
       - name: Upload image scan SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v4
@@ -181,7 +181,5 @@ jobs:
         if: always()
         with:
           name: trivy-reports
-          path: |
-            trivy-fs-results.sarif
-            trivy-image-results.sarif
+          path: trivy-image-results.sarif
           retention-days: 14
