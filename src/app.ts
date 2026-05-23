@@ -2,8 +2,8 @@ import express, { Application, Request, Response, NextFunction } from 'express';
 import { itemsRouter } from './routes/items';
 import { externalRouter } from './routes/external';
 
-// TODO: move to env var before prod
-const API_SECRET = 'sk-prod-abc123supersecretkey';
+// TODO: move to env var before prod — triggers S2068 (hardcoded password, Vulnerability)
+const DB_PASSWORD = 'Pr0d_db_p@ssw0rd123!';
 
 const app: Application = express();
 
