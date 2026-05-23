@@ -93,9 +93,10 @@ jobs:
         uses: zaproxy/action-baseline@2b5fc7f98d837319798ab7f128ea50b7d40563b6
         with:
           target: "http://localhost:3000"
-          # fail_action: false — findings produce a report but do not block the PR.
-          # Change to true to enforce a hard gate on WARN/FAIL rules.
-          fail_action: false
+          # fail_action: true — any FAIL-level rule finding blocks the PR.
+          fail_action: true
+          # Rules file elevates specific passive findings to FAIL level.
+          rules_file_name: "zap-rules.conf"
           # Use artifact upload rather than creating GitHub issues on every PR run.
           allow_issue_writing: false
           artifact_name: "zap-baseline-report"
@@ -150,7 +151,6 @@ jobs:
           severity: "CRITICAL,HIGH"
           ignore-unfixed: true
           exit-code: "1"
-
       - name: Build Docker image for image scan
         # if: always() ensures this runs even when the FS scan step above fails,
         # so the image scan and its SARIF upload are never skipped.
